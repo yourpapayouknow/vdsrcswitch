@@ -1,0 +1,14 @@
+# macOS build outputs
+bin/vdsrcswitch_macos*
+bin/Release/
+bin/Debug/
+
+# Visual Studio files
+.vs/
+[Dd]ebug/
+[Rr]elease/
+x64/
+[Oo]bj/
+
+# OS files
+.DS_Store
