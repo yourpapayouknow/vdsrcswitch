@@ -13,6 +13,7 @@
 #include "monitor.h"
 #include "hook.h"
 #include "overlay.h"
+#include "wsserver.h"
 
 /* -------------------------------------------------------------------------
  * Constants
@@ -149,6 +150,7 @@ static void on_commit(void)
     s_overlay_active = false;
     if (g_monitor_count > 0)
         monitor_commit_all();
+    wsserver_broadcast_state();
 }
 
 /* -------------------------------------------------------------------------
@@ -176,6 +178,22 @@ static void on_cancel(void)
 static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
+    case WM_VDSS_WS_SET_INPUT: {
+        int idx = (int)wp;
+        DWORD val = (DWORD)lp;
+        if (idx >= 0 && idx < g_monitor_count) {
+            monitor_set_input(idx, val);
+            for (int i = 0; i < g_monitors[idx].input_count; i++) {
+                if (g_monitors[idx].inputs[i] == val) {
+                    g_monitors[idx].selected_index = i;
+                    break;
+                }
+            }
+            wsserver_broadcast_state();
+        }
+        return 0;
+    }
+
     case WM_VDSS_CYCLE_NEXT:
         on_cycle_next(lp);
         return 0;
@@ -314,6 +332,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
     }
     log_write("Main window created");
 
+    /* Start WebSocket/HTTP server */
+    if (wsserver_start(s_hwnd_main)) {
+        log_write("WebSocket server started successfully");
+    } else {
+        log_write("WebSocket server failed to start");
+    }
+
     /* Overlay window */
     if (!overlay_create(hInstance)) {
         log_write("overlay_create FAILED");
@@ -346,6 +371,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
     /* Cleanup */
     log_write("Exiting");
+    wsserver_stop();
     hook_uninstall();
     overlay_destroy();
     if (s_mutex) { ReleaseMutex(s_mutex); CloseHandle(s_mutex); }

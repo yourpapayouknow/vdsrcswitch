@@ -63,10 +63,12 @@ void config_init(void)
     /* --- [settings] --- */
     g_config.activation_hold_ms = (DWORD)INI_GET_INT(L"settings", L"activation_hold_ms", 300);
     g_config.overlay_opacity    = (BYTE) INI_GET_INT(L"settings", L"overlay_opacity",    230);
+    g_config.ws_port            = (int)  INI_GET_INT(L"settings", L"ws_port",            59060);
 
     /* 范围校验 */
     if (g_config.activation_hold_ms < 50)  g_config.activation_hold_ms = 50;
     if (g_config.activation_hold_ms > 2000) g_config.activation_hold_ms = 2000;
+    if (g_config.ws_port <= 0 || g_config.ws_port > 65535) g_config.ws_port = 59060;
 
     /* --- [monitor_N] --- */
     g_config.monitor_count = INI_GET_INT(L"settings", L"monitor_count", 0);
@@ -109,6 +111,9 @@ void config_save(void)
 
     _snwprintf_s(buf, 32, _TRUNCATE, L"%u", (unsigned)g_config.overlay_opacity);
     INI_SET(L"settings", L"overlay_opacity", buf);
+
+    _snwprintf_s(buf, 32, _TRUNCATE, L"%d", g_config.ws_port);
+    INI_SET(L"settings", L"ws_port", buf);
 
     _snwprintf_s(buf, 32, _TRUNCATE, L"%d", g_config.monitor_count);
     INI_SET(L"settings", L"monitor_count", buf);

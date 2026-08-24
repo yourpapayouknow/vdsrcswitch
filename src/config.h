@@ -42,6 +42,9 @@ typedef struct {
     int          monitor_count;
     MonitorConfig monitors[VDSS_MAX_MONITORS_CFG];
 
+    /* WebSocket / HTTP 端口，默认 8080 */
+    int          ws_port;
+
     /* INI 文件路径（运行时填充） */
     WCHAR  ini_path[MAX_PATH];
 } AppConfig;

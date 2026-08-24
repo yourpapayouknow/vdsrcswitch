@@ -20,6 +20,10 @@ typedef struct {
     int      selected_index;        /* 当前在 overlay 中选中的 index */
 } MonitorInfo;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* 全局显示器列表 */
 extern MonitorInfo g_monitors[VDSS_MAX_MONITORS];
 extern int         g_monitor_count;
@@ -55,5 +59,9 @@ DWORD monitor_cycle_next(int monitor_idx);
  * 在主线程收到 WM_VDSS_COMMIT 后调用。
  */
 void monitor_commit_all(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* VDSS_MONITOR_H */

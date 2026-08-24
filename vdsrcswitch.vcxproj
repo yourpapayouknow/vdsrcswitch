@@ -93,12 +93,14 @@
     <ClCompile Include="src\main.c" />
     <ClCompile Include="src\monitor.c" />
     <ClCompile Include="src\overlay.cpp" />
+    <ClCompile Include="src\wsserver.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\config.h" />
     <ClInclude Include="src\hook.h" />
     <ClInclude Include="src\monitor.h" />
     <ClInclude Include="src\overlay.h" />
+    <ClInclude Include="src\wsserver.h" />
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="src\vdsrcswitch.manifest" />
