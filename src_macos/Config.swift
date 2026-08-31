@@ -187,7 +187,25 @@ class AppConfig {
         for v in values {
             let found = mc.inputs.contains { $0.value == v }
             if !found && mc.inputs.count < 16 {
-                mc.inputs.append(InputSource(value: v, name: "Input \(v)"))
+                let friendlyName: String
+                switch v {
+                case 1: friendlyName = "VGA"
+                case 3: friendlyName = "DVI"
+                case 4: friendlyName = "DVI 2"
+                case 5: friendlyName = "HDMI 1"
+                case 6: friendlyName = "HDMI 2"
+                case 7: friendlyName = "DP 1"
+                case 8: friendlyName = "DP 2"
+                case 9: friendlyName = "DVI 1"
+                case 10: friendlyName = "DVI 2"
+                case 15: friendlyName = "DP 1 (Alt)"
+                case 16: friendlyName = "DP 2 (Alt)"
+                case 17: friendlyName = "HDMI 1 (Alt)"
+                case 18: friendlyName = "HDMI 2 (Alt)"
+                case 27: friendlyName = "USB-C"
+                default: friendlyName = "Input \(v)"
+                }
+                mc.inputs.append(InputSource(value: v, name: friendlyName))
             }
         }
         

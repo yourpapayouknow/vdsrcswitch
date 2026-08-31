@@ -377,7 +377,7 @@ class DDCController {
                 }
                 logWrite("DDCController: Applied override settings from INI: \(monitor.inputs)")
             } else {
-                let fallbackInputs: [UInt32] = [5, 6, 7, 8, 15, 16, 17, 18]
+                let fallbackInputs: [UInt32] = [5, 6, 7, 8]
                 var initialInputs = [UInt32]()
                 if currentInput != 0 {
                     initialInputs.append(currentInput)
