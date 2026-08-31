@@ -19,6 +19,20 @@
 
 extern "C" void log_write(const char* msg);
 
+// Case-insensitive substring search (HTTP headers are case-insensitive per RFC 7230)
+static bool icontains(const std::string& haystack, const std::string& needle) {
+    if (needle.empty()) return true;
+    auto it = std::search(
+        haystack.begin(), haystack.end(),
+        needle.begin(),  needle.end(),
+        [](unsigned char a, unsigned char b) {
+            return std::tolower(a) == std::tolower(b);
+        }
+    );
+    return it != haystack.end();
+}
+
+
 static HWND s_hwnd_main = NULL;
 static std::atomic<bool> s_server_running(false);
 static HANDLE s_server_thread = NULL;
@@ -148,12 +162,29 @@ const char* g_index_html = R"html(<!DOCTYPE html>
             </div>
         </header>
         <div id="monitors-container"></div>
+        <div style="margin-top:20px; border-top:1px solid #333; padding-top:10px;">
+            <div style="font-size:12px; color:#888; margin-bottom:5px;">Debug Console:</div>
+            <pre id="debug-log" style="font-size:11px; font-family:monospace; background:#1a1a1a; padding:8px; border-radius:4px; max-height:150px; overflow-y:auto; margin:0; color:#aaa; white-space:pre-wrap; word-break:break-all; user-select:text; -webkit-user-select:text;"></pre>
+        </div>
     </div>
     <script>
         let ws;
         const dot = document.getElementById('status-dot');
         const text = document.getElementById('status-text');
         const container = document.getElementById('monitors-container');
+        const debugLogEl = document.getElementById('debug-log');
+
+        function debugLog(msg) {
+            if (debugLogEl) {
+                debugLogEl.innerText += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+                debugLogEl.scrollTop = debugLogEl.scrollHeight;
+            }
+        }
+
+        window.onerror = (message, source, lineno, colno, error) => {
+            debugLog(`JS Error: ${message} at ${lineno}:${colno}`);
+            return false;
+        };
 
         function connect() {
             text.innerText = "Connecting...";
@@ -161,31 +192,35 @@ const char* g_index_html = R"html(<!DOCTYPE html>
             
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws`;
+            debugLog(`Connecting to ${wsUrl}...`);
             ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
                 dot.className = "dot connected";
                 text.innerText = "Connected";
+                debugLog("WebSocket connection opened.");
             };
 
-            ws.onclose = () => {
+            ws.onclose = (event) => {
                 dot.className = "dot";
                 text.innerText = "Disconnected";
+                debugLog(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`);
                 setTimeout(connect, 2000);
             };
 
             ws.onerror = (err) => {
-                console.error(err);
+                debugLog("WebSocket error encountered.");
             };
 
             ws.onmessage = (event) => {
+                debugLog(`Received message: ${event.data}`);
                 try {
                     const msg = JSON.parse(event.data);
                     if (msg.type === 'state') {
                         renderMonitors(msg.monitors);
                     }
                 } catch (e) {
-                    console.error("Failed to parse msg", e);
+                    debugLog(`JSON Parse Error: ${e.message}`);
                 }
             };
         }
@@ -216,11 +251,21 @@ const char* g_index_html = R"html(<!DOCTYPE html>
                     }
                     btn.innerText = input.name || `Input 0x${input.value.toString(16).toUpperCase()}`;
                     btn.onclick = () => {
-                        ws.send(JSON.stringify({
-                            type: 'set_input',
-                            monitor_idx: m.id,
-                            value: input.value
-                        }));
+                        debugLog(`Click: set_input monitor_idx=${m.id} value=${input.value}`);
+                        try {
+                            if (ws.readyState !== WebSocket.OPEN) {
+                                debugLog(`ws.send failed: WebSocket is not open (state=${ws.readyState})`);
+                                return;
+                            }
+                            ws.send(JSON.stringify({
+                                type: 'set_input',
+                                monitor_idx: m.id,
+                                value: input.value
+                            }));
+                            debugLog("ws.send succeeded");
+                        } catch (err) {
+                            debugLog(`ws.send exception: ${err.message}`);
+                        }
                     };
                     list.appendChild(btn);
                 });
@@ -284,6 +329,7 @@ static void base64_encode(const BYTE* src, int len, char* dst) {
 }
 
 static int recv_all(SOCKET s, char* buf, int len) {
+    if (len == 0) return 1; // Nothing to receive — treat as success
     int total = 0;
     while (total < len) {
         int r = recv(s, buf + total, len - total, 0);
@@ -378,26 +424,63 @@ extern "C" void wsserver_broadcast_state(void) {
     }
 }
 
-static int handle_ws_data(SOCKET s) {
-    uint8_t header[2];
-    if (recv_all(s, (char*)header, 2) <= 0) return -1;
+static int extract_json_int(const std::string& json, const std::string& key, int default_val = -1) {
+    size_t pos = json.find("\"" + key + "\"");
+    if (pos == std::string::npos) return default_val;
     
-    int opcode = header[0] & 0x0F;
-    if (opcode == 8) { // Connection close frame
-        return 0;
+    // Find colon after key name
+    pos = json.find(":", pos + key.length() + 2);
+    if (pos == std::string::npos) return default_val;
+    
+    // Skip spaces
+    pos++;
+    while (pos < json.length() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == '\r' || json[pos] == '\n')) {
+        pos++;
     }
     
+    if (pos >= json.length()) return default_val;
+    
+    // Parse integer
+    return std::atoi(json.c_str() + pos);
+}
+
+static int handle_ws_data(SOCKET s) {
+    uint8_t header[2];
+    int r = recv_all(s, (char*)header, 2);
+    if (r <= 0) {
+        log_write("wsserver: handle_ws_data: recv_all(header) <= 0");
+        return -1;
+    }
+    
+    int opcode = header[0] & 0x0F;
     int masked = (header[1] & 0x80) != 0;
     int len_field = header[1] & 0x7F;
+    
+    {
+        char log_msg[128];
+        sprintf_s(log_msg, sizeof(log_msg), "wsserver: handle_ws_data: opcode=%d, len_field=%d, masked=%d, fin=%d", opcode, len_field, masked, (header[0] & 0x80) != 0);
+        log_write(log_msg);
+    }
+    
+    if (opcode == 8) { // Connection close frame
+        log_write("wsserver: handle_ws_data: Connection close frame received");
+        return 0;
+    }
     
     uint64_t actual_len = 0;
     if (len_field == 126) {
         uint8_t ext_len[2];
-        if (recv_all(s, (char*)ext_len, 2) <= 0) return -1;
+        if (recv_all(s, (char*)ext_len, 2) <= 0) {
+            log_write("wsserver: handle_ws_data: recv_all(ext_len 2) <= 0");
+            return -1;
+        }
         actual_len = (ext_len[0] << 8) | ext_len[1];
     } else if (len_field == 127) {
         uint8_t ext_len[8];
-        if (recv_all(s, (char*)ext_len, 8) <= 0) return -1;
+        if (recv_all(s, (char*)ext_len, 8) <= 0) {
+            log_write("wsserver: handle_ws_data: recv_all(ext_len 8) <= 0");
+            return -1;
+        }
         actual_len = 0;
         for (int i = 0; i < 8; i++) {
             actual_len = (actual_len << 8) | ext_len[i];
@@ -408,15 +491,25 @@ static int handle_ws_data(SOCKET s) {
     
     uint8_t mask_key[4] = {0};
     if (masked) {
-        if (recv_all(s, (char*)mask_key, 4) <= 0) return -1;
+        if (recv_all(s, (char*)mask_key, 4) <= 0) {
+            log_write("wsserver: handle_ws_data: recv_all(mask_key) <= 0");
+            return -1;
+        }
     }
     
     if (actual_len > 4096) {
+        log_write("wsserver: handle_ws_data: actual_len > 4096, rejecting");
         return -1; // Protect memory
     }
     
+    // actual_len may be 0 for ping/pong control frames — that is valid, recv_all handles it
     std::vector<char> payload((size_t)actual_len + 1, 0);
-    if (recv_all(s, payload.data(), (int)actual_len) <= 0) return -1;
+    if (actual_len > 0) {
+        if (recv_all(s, payload.data(), (int)actual_len) <= 0) {
+            log_write("wsserver: handle_ws_data: recv_all(payload) <= 0");
+            return -1;
+        }
+    }
     
     if (masked) {
         for (size_t i = 0; i < actual_len; i++) {
@@ -426,21 +519,50 @@ static int handle_ws_data(SOCKET s) {
     
     if (opcode == 1) { // Text frame
         std::string text(payload.data(), (size_t)actual_len);
+        {
+            struct sockaddr_in peer_addr;
+            int addr_len = sizeof(peer_addr);
+            char ip_str[64] = "unknown";
+            if (getpeername(s, (struct sockaddr*)&peer_addr, &addr_len) == 0) {
+                inet_ntop(AF_INET, &peer_addr.sin_addr, ip_str, sizeof(ip_str));
+            }
+            char log_msg[512];
+            sprintf_s(log_msg, sizeof(log_msg), "wsserver: Received WS text from %s: %s", ip_str, text.c_str());
+            log_write(log_msg);
+        }
         
-        // Parse simple JSON values
+        // Parse JSON values
         if (text.find("\"set_input\"") != std::string::npos) {
-            auto m_pos = text.find("\"monitor_idx\":");
-            auto v_pos = text.find("\"value\":");
-            if (m_pos != std::string::npos && v_pos != std::string::npos) {
-                int monitor_idx = std::atoi(text.c_str() + m_pos + 14);
-                DWORD value = (DWORD)std::strtoul(text.c_str() + v_pos + 8, nullptr, 10);
+            int monitor_idx = extract_json_int(text, "monitor_idx", -1);
+            int value       = extract_json_int(text, "value",       -1);
+            
+            if (monitor_idx >= 0 && value >= 0) {
+                char log_msg[512];
+                sprintf_s(log_msg, sizeof(log_msg), "wsserver: Parsed monitor_idx=%d, value=%d, s_hwnd_main=%p", monitor_idx, value, s_hwnd_main);
+                log_write(log_msg);
                 
                 if (s_hwnd_main) {
-                    PostMessageW(s_hwnd_main, WM_VDSS_WS_SET_INPUT, (WPARAM)monitor_idx, (LPARAM)value);
+                    BOOL ok = PostMessageW(s_hwnd_main, WM_VDSS_WS_SET_INPUT, (WPARAM)monitor_idx, (LPARAM)value);
+                    sprintf_s(log_msg, sizeof(log_msg), "wsserver: PostMessageW returned %d, LastError=%lu", ok, GetLastError());
+                    log_write(log_msg);
+                } else {
+                    log_write("wsserver: s_hwnd_main is NULL!");
                 }
+            } else {
+                log_write("wsserver: monitor_idx or value fields missing/invalid in JSON");
             }
         }
+    } else if (opcode == 9) { // Ping — must reply with Pong (opcode=0xA) per RFC 6455
+        char pong_header[2];
+        pong_header[0] = (char)0x8A; // FIN + pong opcode
+        pong_header[1] = (char)(actual_len & 0x7F); // echo payload length, no server-side masking
+        send(s, pong_header, 2, 0);
+        if (actual_len > 0) {
+            send(s, payload.data(), (int)actual_len, 0); // echo payload back
+        }
+        log_write("wsserver: Ping received, Pong sent");
     }
+    // opcode == 0xA (pong), 2 (binary), 0 (continuation) — ignore silently
     
     return 1; // Keep open
 }
@@ -453,11 +575,18 @@ static int handle_http_data(SOCKET s, HttpClient* client) {
     
     std::string req_str(req);
     
-    if (req_str.find("GET /ws") != std::string::npos && req_str.find("Upgrade: websocket") != std::string::npos) {
+    // Use icontains for all header checks — HTTP headers are case-insensitive (RFC 7230)
+    if (icontains(req_str, "GET /ws") && icontains(req_str, "Upgrade: websocket")) {
         // Upgrade to WebSocket
-        auto key_pos = req_str.find("Sec-WebSocket-Key:");
+        // Find Sec-WebSocket-Key (case-insensitive)
+        size_t key_pos = std::string::npos;
+        {
+            std::string lower = req_str;
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c){ return (char)std::tolower(c); });
+            size_t p = lower.find("sec-websocket-key:");
+            if (p != std::string::npos) key_pos = p + 18; // length of "sec-websocket-key:"
+        }
         if (key_pos != std::string::npos) {
-            key_pos += 18;
             while (key_pos < req_str.length() && (req_str[key_pos] == ' ' || req_str[key_pos] == '\t')) {
                 key_pos++;
             }
@@ -488,9 +617,27 @@ static int handle_http_data(SOCKET s, HttpClient* client) {
                     s_ws_clients.push_back(s);
                 }
                 
-                // Send current state immediately
+                // Refresh current_input from DDC/CI before sending state to the new client.
+                // This ensures a remote client (e.g. Mac) always sees the true active input,
+                // not a stale cached value from program startup.
+                for (int i = 0; i < g_monitor_count; i++) {
+                    DWORD cur = 0;
+                    if (monitor_get_input(i, &cur)) {
+                        g_monitors[i].current_input = cur;
+                        // Re-sync selected_index
+                        for (int j = 0; j < g_monitors[i].input_count; j++) {
+                            if (g_monitors[i].inputs[j] == cur) {
+                                g_monitors[i].selected_index = j;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                // Send current state to new client
                 std::string json = build_state_json();
                 ws_send_text(s, json.c_str(), (int)json.length());
+                log_write("wsserver: New WS client connected, state sent");
                 
                 return 1; // Keep connection open
             }
@@ -603,8 +750,16 @@ static DWORD WINAPI wsserver_thread_proc(LPVOID lpParam) {
         
         // 1. Accept new connection
         if (FD_ISSET(s_listen_sock, &read_fds)) {
-            SOCKET client = accept(s_listen_sock, NULL, NULL);
+            struct sockaddr_in client_addr;
+            int addr_len = sizeof(client_addr);
+            SOCKET client = accept(s_listen_sock, (struct sockaddr*)&client_addr, &addr_len);
             if (client != INVALID_SOCKET) {
+                char ip_str[64] = {0};
+                inet_ntop(AF_INET, &client_addr.sin_addr, ip_str, sizeof(ip_str));
+                char log_msg[128];
+                sprintf_s(log_msg, sizeof(log_msg), "wsserver: Accepted connection from %s", ip_str);
+                log_write(log_msg);
+                
                 if (clients.size() < 32) {
                     clients.push_back({client, false});
                 } else {
@@ -659,6 +814,11 @@ extern "C" BOOL wsserver_start(HWND hwnd_main) {
     if (s_server_running) return TRUE;
     
     s_hwnd_main = hwnd_main;
+    {
+        char log_msg[128];
+        sprintf_s(log_msg, sizeof(log_msg), "wsserver_start: s_hwnd_main=%p", s_hwnd_main);
+        log_write(log_msg);
+    }
     s_server_running = true;
     s_ws_clients.clear();
     

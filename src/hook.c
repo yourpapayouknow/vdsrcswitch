@@ -156,6 +156,11 @@ BOOL hook_install(HWND hwnd_main)
     s_shift_down = s_v_down = s_tab_down = false;
 
     s_hook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, NULL, 0);
+    {
+        char buf[128];
+        sprintf_s(buf, sizeof(buf), "hook_install: s_hook=%p, LastError=%lu", (void*)s_hook, GetLastError());
+        log_write(buf);
+    }
     return (s_hook != NULL);
 }
 

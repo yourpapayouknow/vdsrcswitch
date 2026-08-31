@@ -1,7 +1,5 @@
 # macOS build outputs
-bin/vdsrcswitch_macos*
-bin/Release/
-bin/Debug/
+bin/
 
 # Visual Studio files
 .vs/

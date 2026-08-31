@@ -67,6 +67,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             logWrite("AppDelegate: FATAL - Keyboard hook installation failed.")
             NSApp.terminate(nil)
         }
+        
+        // Setup Status Item Menu Bar
+        StatusMenuManager.shared.setup()
     }
     
     func applicationWillTerminate(_ notification: Notification) {
@@ -127,5 +130,5 @@ logWrite("Accessibility permissions verified.")
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
-app.setActivationPolicy(.prohibited) // Background agent mode (no Dock icon)
+app.setActivationPolicy(.accessory) // Accessory mode: no Dock icon, supports status item menu and window presentation
 app.run()

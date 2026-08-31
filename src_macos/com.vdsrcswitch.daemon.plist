@@ -6,7 +6,7 @@
     <string>com.vdsrcswitch.daemon</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/vdsrcswitch_macos</string>
+        <string>/Applications/vdsrcswitch.app/Contents/MacOS/vdsrcswitch</string>
     </array>
     <key>KeepAlive</key>
     <true/>
