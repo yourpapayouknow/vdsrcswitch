@@ -30,12 +30,12 @@ class OverlayView: NSView {
         strokePath.lineWidth = 4
         strokePath.stroke()
         
-        // 3. Draw text in PingFang SC
+        // 3. Draw text with balanced typography and solid font weights
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.alignment = .center
         
-        let fontLine1 = NSFont(name: "PingFangSC-Semibold", size: 20) ?? NSFont.boldSystemFont(ofSize: 20)
-        let fontLine2 = NSFont(name: "PingFangSC-Semibold", size: 32) ?? NSFont.boldSystemFont(ofSize: 32)
+        let fontLine1 = NSFont.systemFont(ofSize: 18, weight: .bold)
+        let fontLine2 = NSFont.systemFont(ofSize: 32, weight: .heavy)
         
         let attrsLine1: [NSAttributedString.Key: Any] = [
             .font: fontLine1,
@@ -52,11 +52,6 @@ class OverlayView: NSView {
         let text1 = "当前: \(currentName)"
         let size1 = text1.size(withAttributes: attrsLine1)
         
-        // Line 1 should center vertically in top half of the box
-        let line1Y = boxY + boxH / 2 + (boxH / 2 - size1.height) / 2
-        let rect1 = NSRect(x: boxX + 24, y: line1Y, width: boxW - 48, height: size1.height)
-        text1.draw(in: rect1, withAttributes: attrsLine1)
-        
         // Line 2: Target input
         let text2: String
         if !targetName.isEmpty && targetName != currentName {
@@ -66,9 +61,19 @@ class OverlayView: NSView {
         }
         let size2 = text2.size(withAttributes: attrsLine2)
         
-        // Line 2 should center vertically in bottom half of the box
-        let line2Y = boxY + (boxH / 2 - size2.height) / 2
-        let rect2 = NSRect(x: boxX + 24, y: line2Y, width: boxW - 48, height: size2.height)
+        // Vertically center the combined two-line text block with balanced spacing
+        let spacing: CGFloat = 8
+        let totalTextHeight = size1.height + spacing + size2.height
+        let startY = boxY + (boxH - totalTextHeight) / 2
+        
+        // In Cocoa (unflipped coordinates), bottom line is drawn at lower Y, top line at higher Y
+        let line2Y = startY
+        let line1Y = startY + size2.height + spacing
+        
+        let rect1 = NSRect(x: boxX + 20, y: line1Y, width: boxW - 40, height: size1.height)
+        text1.draw(in: rect1, withAttributes: attrsLine1)
+        
+        let rect2 = NSRect(x: boxX + 20, y: line2Y, width: boxW - 40, height: size2.height)
         text2.draw(in: rect2, withAttributes: attrsLine2)
     }
 }
