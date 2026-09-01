@@ -49,6 +49,16 @@ func checkAccessibilityPermissions() -> Bool {
     return AXIsProcessTrustedWithOptions(options)
 }
 
+private func displayReconfigurationCallback(display: CGDirectDisplayID, flags: CGDisplayChangeSummaryFlags, userInfo: UnsafeMutableRawPointer?) {
+    if flags.contains(.addFlag) || flags.contains(.removeFlag) || flags.contains(.enabledFlag) || flags.contains(.setModeFlag) {
+        logWrite("AppDelegate: Display reconfiguration detected (flags: \(flags.rawValue)). Re-enumerating monitors...")
+        DispatchQueue.main.async {
+            DDCController.shared.enumerateMonitors()
+            StatusMenuManager.shared.updateDisplayMenu()
+        }
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         logWrite("AppDelegate: Application did finish launching.")
@@ -62,6 +72,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DDCController.shared.enumerateMonitors()
         logWrite("AppDelegate: Display enumeration finished.")
         
+        // Register display reconfiguration callback
+        CGDisplayRegisterReconfigurationCallback(displayReconfigurationCallback, nil)
+        
         // Install keyboard tap hook
         if !KeyboardHook.shared.install() {
             logWrite("AppDelegate: FATAL - Keyboard hook installation failed.")
@@ -74,6 +87,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationWillTerminate(_ notification: Notification) {
         logWrite("AppDelegate: Terminating. Cleaning up KeyboardHook...")
+        CGDisplayRemoveReconfigurationCallback(displayReconfigurationCallback, nil)
         KeyboardHook.shared.uninstall()
         logWrite("=== vdsrcswitch terminated ===")
         logClose()

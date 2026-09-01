@@ -1,7 +1,7 @@
 import Cocoa
 import Foundation
 
-class StatusMenuManager: NSObject {
+class StatusMenuManager: NSObject, NSMenuDelegate {
     static let shared = StatusMenuManager()
     
     var statusItem: NSStatusItem?
@@ -23,6 +23,7 @@ class StatusMenuManager: NSObject {
         
         // Create Main Menu
         let menu = NSMenu()
+        menu.delegate = self
         
         // Title Item
         let titleItem = NSMenuItem(title: "vdsrcswitch (Mac)", action: nil, keyEquivalent: "")
@@ -45,8 +46,10 @@ class StatusMenuManager: NSObject {
         
         // Dynamic list menu item (we'll update this submenu dynamically)
         let displaysMenuContainer = NSMenuItem(title: "Displays", action: nil, keyEquivalent: "")
-        displaysSubmenu = NSMenu()
-        displaysMenuContainer.submenu = displaysSubmenu
+        let subMenu = NSMenu()
+        subMenu.delegate = self
+        displaysSubmenu = subMenu
+        displaysMenuContainer.submenu = subMenu
         menu.addItem(displaysMenuContainer)
         
         menu.addItem(NSMenuItem.separator())
@@ -59,6 +62,14 @@ class StatusMenuManager: NSObject {
         statusItem?.menu = menu
         
         // Initial populate of the displays
+        updateDisplayMenu()
+    }
+    
+    func menuWillOpen(_ menu: NSMenu) {
+        // Refresh live current inputs for all monitors on menu open
+        for i in 0..<DDCController.shared.monitors.count {
+            _ = DDCController.shared.refreshCurrentInput(monitorIdx: i)
+        }
         updateDisplayMenu()
     }
     

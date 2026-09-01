@@ -163,12 +163,22 @@ class KeyboardHook {
     
     private func startHoldTimer() {
         self.timer?.invalidate()
+        
+        // Asynchronously refresh live current input during the hold delay
+        DispatchQueue.global(qos: .userInitiated).async {
+            for i in 0..<DDCController.shared.monitors.count {
+                _ = DDCController.shared.refreshCurrentInput(monitorIdx: i)
+            }
+        }
+        
         let interval = Double(AppConfig.shared.activationHoldMs) / 1000.0
         self.timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             guard let self = self else { return }
             if self.state == .timing {
                 self.state = .active
                 logWrite("KeyboardHook: Hold threshold reached. Mode is ACTIVE.")
+                
+                self.resetSelectionIndex()
                 
                 // Show initial overlay (show current, don't cycle yet)
                 let monCount = DDCController.shared.monitors.count

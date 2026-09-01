@@ -401,22 +401,70 @@ class DDCController {
         AppConfig.shared.save()
     }
     
-    func getInput(monitorIdx: Int) -> UInt32? {
+    func refreshCurrentInput(monitorIdx: Int) -> UInt32? {
         guard monitorIdx >= 0 && monitorIdx < monitors.count else { return nil }
-        let mon = monitors[monitorIdx]
-        if let readResult = AppleSiliconDDC.read(service: mon.avService, command: 0x60) {
-            return UInt32(readResult.current)
+        var mon = monitors[monitorIdx]
+        
+        var readResult = AppleSiliconDDC.read(service: mon.avService, command: 0x60)
+        if readResult == nil {
+            logWrite("DDCController: DDC read failed for monitor \(monitorIdx), re-enumerating monitors...")
+            enumerateMonitors()
+            guard monitorIdx < monitors.count else { return nil }
+            mon = monitors[monitorIdx]
+            readResult = AppleSiliconDDC.read(service: mon.avService, command: 0x60)
         }
+        
+        if let result = readResult {
+            let cur = UInt32(result.current)
+            mon.currentInput = cur
+            for (i, v) in mon.inputs.enumerated() {
+                if v == cur {
+                    mon.selectedIndex = i
+                    break
+                }
+            }
+            monitors[monitorIdx] = mon
+            logWrite("DDCController: Refreshed monitor \(monitorIdx) current input = \(cur)")
+            return cur
+        }
+        
         return nil
+    }
+    
+    func getInput(monitorIdx: Int) -> UInt32? {
+        return refreshCurrentInput(monitorIdx: monitorIdx)
     }
     
     func setInput(monitorIdx: Int, value: UInt32) -> Bool {
         guard monitorIdx >= 0 && monitorIdx < monitors.count else { return false }
-        let mon = monitors[monitorIdx]
+        var mon = monitors[monitorIdx]
         
         logWrite("DDCController: Setting monitor \(monitorIdx) (\(mon.description)) input to \(value) (0x\(String(value, radix: 16).uppercased()))")
         
-        return AppleSiliconDDC.write(service: mon.avService, command: 0x60, value: UInt16(value))
+        var success = AppleSiliconDDC.write(service: mon.avService, command: 0x60, value: UInt16(value))
+        if !success {
+            logWrite("DDCController: Direct DDC write failed. Re-enumerating displays and retrying...")
+            enumerateMonitors()
+            guard monitorIdx < monitors.count else { return false }
+            mon = monitors[monitorIdx]
+            success = AppleSiliconDDC.write(service: mon.avService, command: 0x60, value: UInt16(value))
+        }
+        
+        if success {
+            logWrite("DDCController: DDC write succeeded for value \(value)")
+            mon.currentInput = value
+            for (i, v) in mon.inputs.enumerated() {
+                if v == value {
+                    mon.selectedIndex = i
+                    break
+                }
+            }
+            monitors[monitorIdx] = mon
+            return true
+        } else {
+            logWrite("DDCController: DDC write failed after retry.")
+            return false
+        }
     }
     
     func cycleNext(monitorIdx: Int) -> UInt32 {
@@ -449,15 +497,11 @@ class DDCController {
                 target = mon.currentInput
             }
             
-            if target != mon.currentInput {
-                let success = setInput(monitorIdx: i, value: target)
-                if success {
-                    var updated = monitors[i]
-                    updated.currentInput = target
-                    monitors[i] = updated
-                }
+            let success = setInput(monitorIdx: i, value: target)
+            if success {
+                logWrite("DDCController: Monitor \(i) successfully switched to target \(target)")
             } else {
-                logWrite("DDCController: Monitor \(i) target \(target) is identical to current \(mon.currentInput). Skipping.")
+                logWrite("DDCController: Monitor \(i) failed to switch to target \(target)")
             }
         }
     }

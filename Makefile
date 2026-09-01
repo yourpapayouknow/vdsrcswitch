@@ -30,6 +30,8 @@ install: build
 	@echo "Installing launch agent..."
 	@make uninstall
 	@cp -R $(APP_BUNDLE) /Applications/
+	@xattr -rc /Applications/vdsrcswitch.app
+	@codesign --force --deep --sign - /Applications/vdsrcswitch.app
 	@mkdir -p ~/Library/LaunchAgents
 	@cp src_macos/com.vdsrcswitch.daemon.plist ~/Library/LaunchAgents/
 	launchctl bootstrap gui/$(shell id -u) ~/Library/LaunchAgents/com.vdsrcswitch.daemon.plist
